@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>IdSnap — Offline ID Photo Maker</title>
+<meta name="description" content="Make print-ready passport & ID photos from a selfie. 100% offline, nothing uploaded.">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#16213a; --line:#334155;
+    --txt:#f1f5f9; --mut:#94a3b8; --acc:#38bdf6; --acc2:#0ea5e9;
+    --ok:#34d399; --bad:#f87171; --r:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt);
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;}
+  header{width:100%;max-width:920px;padding:22px 18px 6px;display:flex;align-items:center;gap:12px;}
+  header img{width:40px;height:40px;border-radius:10px;}
+  header h1{font-size:22px;margin:0;} header h1 span{color:var(--acc);}
+  header p{margin:2px 0 0;font-size:12.5px;color:var(--mut);}
+  .badge{margin-left:auto;font-size:11px;color:var(--ok);border:1px solid #14532d;background:#052e1b;
+    padding:4px 10px;border-radius:999px;white-space:nowrap;}
+  main{width:100%;max-width:920px;padding:14px 18px 60px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px;}
+  .card h2{margin:0 0 4px;font-size:16px;}
+  .card .sub{margin:0 0 14px;font-size:12.5px;color:var(--mut);line-height:1.5;}
+  .hidden{display:none !important;}
+  .btnrow{display:flex;gap:10px;flex-wrap:wrap;}
+  button,select{padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--txt);font-size:14px;}
+  button{cursor:pointer;font-weight:600;}
+  button:active{transform:scale(.98);}
+  .btn{background:linear-gradient(180deg,var(--acc),var(--acc2));border:none;color:#04121f;font-weight:700;flex:1;}
+  .btn.ghost{background:transparent;font-weight:600;flex:1;}
+  .btn.danger{background:transparent;border-color:#7f1d1d;color:var(--bad);flex:1;}
+  button:disabled{opacity:.45;cursor:default;}
+  label.f{display:block;font-size:12px;color:var(--mut);margin:12px 0 6px;}
+  select{width:100%;}
+  input[type=file]{display:none;}
+  input[type=range]{width:100%;accent-color:var(--acc);margin:6px 0;}
+  /* stage */
+  #stageWrap{position:relative;width:100%;max-width:420px;margin:0 auto;border-radius:12px;overflow:hidden;
+    background:#0b1220;border:1px solid var(--line);touch-action:none;}
+  #stage{display:block;width:100%;}
+  #camVideo{width:100%;display:block;background:#000;}
+  .hint{font-size:12px;color:var(--mut);text-align:center;margin-top:8px;}
+  .toolbar{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+  /* result */
+  #resultImg{max-width:220px;width:60%;border-radius:8px;background:#fff;display:block;margin:0 auto;
+    box-shadow:0 4px 18px rgba(0,0,0,.4);}
+  .meta{text-align:center;font-size:12.5px;color:var(--mut);margin:10px 0 0;}
+  .err{color:var(--bad);font-size:13px;margin-top:8px;}
+  footer{font-size:11.5px;color:var(--mut);padding:18px;text-align:center;}
+  /* print */
+  #printSheet{display:none;}
+  @media print{
+    body{background:#fff;}
+    #app{display:none !important;}
+    #printSheet{display:block !important;}
+    #printSheet img{width:100%;display:block;}
+  }
+</style>
+<style id="pageStyle"></style>
+</head>
+<body>
+<div id="app" style="width:100%;display:flex;flex-direction:column;align-items:center;">
+<header>
+  <img src="icon.svg" alt="IdSnap icon">
+  <div><h1>Id<span>Snap</span></h1><p>Offline ID photo maker</p></div>
+  <div class="badge">100% offline</div>
+</header>
+<main>
+  <!-- STEP 1 -->
+  <section class="card" id="step1">
+    <h2>1 · Get your photo</h2>
+    <p class="sub">Use your camera or upload a photo. Face the camera straight, plain background works best. Nothing is uploaded — everything happens on your device.</p>
+    <div class="btnrow">
+      <button class="btn" id="camBtn">📷 Use camera</button>
+      <button class="btn ghost" id="uploadBtn">🖼 Upload photo</button>
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+    <div id="camBox" class="hidden" style="margin-top:12px;">
+      <video id="camVideo" playsinline muted></video>
+      <div class="btnrow" style="margin-top:10px;">
+        <button class="btn" id="snapBtn">Capture</button>
+        <button class="btn ghost" id="camCancel">Cancel</button>
+      </div>
+    </div>
+    <div class="err hidden" id="err1"></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="card hidden" id="step2">
+    <h2>2 · Frame it</h2>
+    <p class="sub">Drag the photo to position your face inside the frame. Use the slider to zoom. Head should fill most of the frame, eyes roughly on the upper third line.</p>
+    <div id="stageWrap"><canvas id="stage"></canvas></div>
+    <div class="hint">Drag to move · slider to zoom</div>
+    <label class="f" for="zoom">Zoom</label>
+    <input type="range" id="zoom" min="1" max="4" step="0.01" value="1">
+    <div class="btnrow">
+      <div style="flex:1">
+        <label class="f" for="preset" style="margin-top:0;">Photo size</label>
+        <select id="preset">
+          <option value="35x45" selected>35 × 45 mm — ID / passport (most common)</option>
+          <option value="51x51">51 × 51 mm — 2×2 inch (Indian passport)</option>
+          <option value="25x35">25 × 35 mm — small ID</option>
+        </select>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="btn ghost" id="rotBtn">⟳ Rotate</button>
+      <button class="btn" id="makeBtn">Make my photo →</button>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="card hidden" id="step3">
+    <h2>3 · Your ID photo</h2>
+    <p class="sub">Exact print size, 300 DPI, white background.</p>
+    <img id="resultImg" alt="Your ID photo">
+    <p class="meta" id="resultMeta"></p>
+    <div class="toolbar">
+      <button class="btn" id="dlBtn">⬇ Download PNG</button>
+    </div>
+    <div class="toolbar">
+      <button class="btn ghost" id="print46">🖨 Print sheet · 4×6″</button>
+      <button class="btn ghost" id="printA4">🖨 Print sheet · A4</button>
+    </div>
+    <div class="toolbar">
+      <button class="btn danger" id="resetBtn">Start over</button>
+    </div>
+    <p class="sub" style="margin:12px 0 0;">Print tip: use glossy photo paper, set paper size to match (4×6″ or A4), scale 100%, margins none.</p>
+  </section>
+</main>
+<footer>Private by design · no account · works offline after first load</footer>
+</div>
+<div id="printSheet"><img id="printImg" alt="print sheet"></div>
+
+<script>
+(function(){
+"use strict";
+const $ = id => document.getElementById(id);
+const stage = $('stage'), sctx = stage.getContext('2d');
+const DPI = 300, PXMM = DPI / 25.4;
+
+let srcImg = null;          // HTMLImageElement source
+let rot = 0;                // 0..3 quarter turns
+let zoom = 1, tx = 0, ty = 0;   // pan/zoom of image under the frame
+let PW = 35, PH = 45;       // preset mm
+let resultCanvas = null, resultLabel = '';
+
+const err1 = $('err1');
+function showErr(m){ err1.textContent = m; err1.classList.remove('hidden'); }
+function clearErr(){ err1.classList.add('hidden'); }
+
+/* ---------- step 1: source ---------- */
+$('uploadBtn').addEventListener('click', ()=>$('fileInput').click());
+$('fileInput').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const url = URL.createObjectURL(f);
+  loadImage(url);
+});
+let stream = null;
+$('camBtn').addEventListener('click', async ()=>{
+  clearErr();
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false});
+    $('camVideo').srcObject = stream;
+    await $('camVideo').play();
+    $('camBox').classList.remove('hidden');
+  }catch(e){ showErr('Camera not available. Please upload a photo instead.'); }
+});
+function stopCam(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } $('camBox').classList.add('hidden'); }
+$('camCancel').addEventListener('click', stopCam);
+$('snapBtn').addEventListener('click', ()=>{
+  const v = $('camVideo');
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  // mirror the selfie so it looks natural
+  const x = c.getContext('2d');
+  x.translate(c.width,0); x.scale(-1,1); x.drawImage(v,0,0);
+  stopCam();
+  loadImage(c.toDataURL('image/jpeg',0.92));
+});
+
+function loadImage(src){
+  const im = new Image();
+  im.onload = ()=>{
+    URL.revokeObjectURL(src);
+    srcImg = im; rot = 0; zoom = 1; tx = 0; ty = 0;
+    $('zoom').value = 1;
+    $('step1').classList.add('hidden');
+    $('step2').classList.remove('hidden');
+    $('step3').classList.add('hidden');
+    layout(); draw();
+    $('step2').scrollIntoView({behavior:'smooth'});
+  };
+  im.onerror = ()=>showErr('Could not read that image. Try another file.');
+  im.src = src;
+}
+
+/* ---------- step 2: framing ---------- */
+function dims(){ // source dims after rotation
+  return (rot % 2 === 0) ? {w: srcImg.naturalWidth, h: srcImg.naturalHeight}
+                        : {w: srcImg.naturalHeight, h: srcImg.naturalWidth};
+}
+const STAGE_W = 900; // internal resolution
+let stageH = 1200, crop = {x:0,y:0,w:0,h:0};
+
+function layout(){
+  const d = dims();
+  const aspect = PW / PH;
+  // crop box: 84% of stage width
+  const cw = STAGE_W * 0.84, ch = cw / aspect;
+  stageH = Math.ceil(ch / 0.72);
+  stage.width = STAGE_W; stage.height = stageH;
+  stage.style.aspectRatio = STAGE_W + ' / ' + stageH;
+  crop = {x:(STAGE_W-cw)/2, y:(stageH-ch)/2, w:cw, h:ch};
+  // fit image to cover crop box at zoom=1
+  const s = Math.max(crop.w/d.w, crop.h/d.h);
+  baseScale = s; tx = 0; ty = 0;
+}
+let baseScale = 1;
+
+function draw(){
+  const d = dims();
+  sctx.fillStyle = '#0b1220';
+  sctx.fillRect(0,0,stage.width,stage.height);
+  const s = baseScale * zoom;
+  const iw = d.w*s, ih = d.h*s;
+  const ix = STAGE_W/2 - iw/2 + tx, iy = stageH/2 - ih/2 + ty;
+  sctx.save();
+  sctx.translate(ix+iw/2, iy+ih/2);
+  sctx.rotate(rot*Math.PI/2);
+  const dw = (rot%2===0)? iw : ih, dh = (rot%2===0)? ih : iw;
+  sctx.drawImage(srcImg, -dw/2, -dh/2, dw, dh);
+  sctx.restore();
+  // dim outside crop
+  sctx.fillStyle = 'rgba(2,6,18,0.62)';
+  sctx.fillRect(0,0,stage.width,crop.y);
+  sctx.fillRect(0,crop.y+crop.h,stage.width,stage.height-crop.y-crop.h);
+  sctx.fillRect(0,crop.y,crop.x,crop.h);
+  sctx.fillRect(crop.x+crop.w,crop.y,stage.width-crop.x-crop.w,crop.h);
+  // frame
+  sctx.strokeStyle = '#38bdf6'; sctx.lineWidth = 5;
+  sctx.strokeRect(crop.x,crop.y,crop.w,crop.h);
+  // thirds guide
+  sctx.strokeStyle = 'rgba(56,189,246,0.5)'; sctx.lineWidth = 2;
+  sctx.setLineDash([12,10]);
+  sctx.beginPath(); sctx.moveTo(crop.x, crop.y+crop.h/3); sctx.lineTo(crop.x+crop.w, crop.y+crop.h/3); sctx.stroke();
+  sctx.setLineDash([]);
+  // corner ticks
+  sctx.strokeStyle = '#fff'; sctx.lineWidth = 7;
+  const L = 44;
+  [[crop.x,crop.y,1,1],[crop.x+crop.w,crop.y,-1,1],[crop.x,crop.y+crop.h,1,-1],[crop.x+crop.w,crop.y+crop.h,-1,-1]]
+    .forEach(([x,y,dx,dy])=>{
+      sctx.beginPath(); sctx.moveTo(x+dx*L,y); sctx.lineTo(x,y); sctx.lineTo(x,y+dy*L); sctx.stroke();
+    });
+}
+
+// pan
+let dragging=false, lx=0, ly=0;
+const wrap = $('stageWrap');
+function pos(e){ const r = stage.getBoundingClientRect();
+  const p = e.touches? e.touches[0] : e;
+  return {x:(p.clientX-r.left)/r.width*STAGE_W, y:(p.clientY-r.top)/r.height*stageH}; }
+wrap.addEventListener('pointerdown', e=>{ dragging=true; const p=pos(e); lx=p.x; ly=p.y; wrap.setPointerCapture(e.pointerId); });
+wrap.addEventListener('pointermove', e=>{ if(!dragging) return; const p=pos(e); tx+=p.x-lx; ty+=p.y-ly; lx=p.x; ly=p.y; draw(); });
+['pointerup','pointercancel'].forEach(ev=>wrap.addEventListener(ev, ()=>dragging=false));
+wrap.addEventListener('wheel', e=>{ e.preventDefault();
+  zoom = Math.min(4, Math.max(1, zoom * (e.deltaY<0?1.08:0.93)));
+  $('zoom').value = zoom; draw(); }, {passive:false});
+
+$('zoom').addEventListener('input', e=>{ zoom = parseFloat(e.target.value); draw(); });
+$('rotBtn').addEventListener('click', ()=>{ rot=(rot+1)%4; zoom=1; tx=0; ty=0; $('zoom').value=1; layout(); draw(); });
+$('preset').addEventListener('change', e=>{
+  const [w,h] = e.target.value.split('x').map(Number); PW=w; PH=h; layout(); draw();
+});
+
+/* ---------- step 3: render ---------- */
+$('makeBtn').addEventListener('click', ()=>{
+  const d = dims();
+  const s = baseScale * zoom;
+  // crop box -> source image coords (accounting rotation is complex; instead re-render via transform)
+  const outW = Math.round(PW*PXMM), outH = Math.round(PH*PXMM);
+  const c = document.createElement('canvas'); c.width=outW; c.height=outH;
+  const x = c.getContext('2d');
+  x.fillStyle='#ffffff'; x.fillRect(0,0,outW,outH);
+  // map: stage pixel -> source pixel. We drew image with translate(ix+iw/2,iy+ih/2)+rotate.
+  // Invert: for output pixel (ox,oy), stage point = crop.x + ox/outW*crop.w ...
+  // Simpler: draw the whole stage transform scaled.
+  const k = outW / crop.w; // stage->output scale
+  x.save();
+  x.scale(k,k);
+  x.translate(-crop.x, -crop.y);
+  // replay stage drawing of the image only
+  const iw = d.w*s, ih = d.h*s;
+  const ix = STAGE_W/2 - iw/2 + tx, iy = stageH/2 - ih/2 + ty;
+  x.translate(ix+iw/2, iy+ih/2);
+  x.rotate(rot*Math.PI/2);
+  const dw = (rot%2===0)? iw : ih, dh = (rot%2===0)? ih : iw;
+  x.imageSmoothingQuality='high';
+  x.drawImage(srcImg, -dw/2, -dh/2, dw, dh);
+  x.restore();
+
+  resultCanvas = c;
+  resultLabel = `idsnap-${PW}x${PH}mm`;
+  $('resultImg').src = c.toDataURL('image/png');
+  $('resultMeta').textContent = `${PW} × ${PH} mm · 300 DPI · ${outW}×${outH} px`;
+  $('step3').classList.remove('hidden');
+  $('step3').scrollIntoView({behavior:'smooth'});
+});
+
+$('dlBtn').addEventListener('click', ()=>{
+  if(!resultCanvas) return;
+  const a=document.createElement('a');
+  a.href=resultCanvas.toDataURL('image/png');
+  a.download=resultLabel+'.png';
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+/* print sheets */
+function sheet(paperWIn, paperHIn){
+  const W=Math.round(paperWIn*DPI), H=Math.round(paperHIn*DPI);
+  const cw=resultCanvas.width, ch=resultCanvas.height;
+  const gap=Math.round(4*PXMM/10); // ~4mm
+  const cols=Math.max(1,Math.floor((W+gap)/(cw+gap))), rows=Math.max(1,Math.floor((H+gap)/(ch+gap)));
+  const sheet=document.createElement('canvas'); sheet.width=W; sheet.height=H;
+  const x=sheet.getContext('2d');
+  x.fillStyle='#ffffff'; x.fillRect(0,0,W,H);
+  const ox=Math.round((W-(cols*cw+(cols-1)*gap))/2), oy=Math.round((H-(rows*ch+(rows-1)*gap))/2);
+  x.strokeStyle='#999'; x.lineWidth=2; x.setLineDash([14,10]);
+  for(let r=0;r<rows;r++) for(let q=0;q<cols;q++){
+    const px=ox+q*(cw+gap), py=oy+r*(ch+gap);
+    x.drawImage(resultCanvas,px,py);
+    x.strokeRect(px,py,cw,ch);
+  }
+  $('printImg').src=sheet.toDataURL('image/png');
+  $('pageStyle').textContent = `@page{size:${paperWIn}in ${paperHIn}in;margin:0;}`;
+  setTimeout(()=>window.print(), 350);
+}
+$('print46').addEventListener('click', ()=>sheet(6,4));
+$('printA4').addEventListener('click', ()=>sheet(8.27,11.69));
+
+$('resetBtn').addEventListener('click', ()=>{
+  srcImg=null; resultCanvas=null; $('fileInput').value='';
+  $('step2').classList.add('hidden'); $('step3').classList.add('hidden');
+  $('step1').classList.remove('hidden');
+  window.scrollTo({top:0,behavior:'smooth'});
+});
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+})();
+</script>
+</body>
+</html>
